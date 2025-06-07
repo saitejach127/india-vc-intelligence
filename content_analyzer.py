@@ -9,7 +9,10 @@ import pandas as pd
 
 class ContentAnalyzer:
     def __init__(self):
-        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        try:
+            openai.api_key = st.secrets["OPENAI_API_KEY"]
+        except:
+            openai.api_key = None
         
         # Configuration
         self.tier1_vcs = [
@@ -102,18 +105,19 @@ class ContentAnalyzer:
             except:
                 date_published = datetime.now()
         
-        days_old = (datetime.now() - date_published.replace(tzinfo=None)).days
-        if days_old <= 1:
-            score += 10
-        elif days_old <= 7:
-            score += 5
+        if hasattr(date_published, 'replace'):
+            days_old = (datetime.now() - date_published.replace(tzinfo=None)).days
+            if days_old <= 1:
+                score += 10
+            elif days_old <= 7:
+                score += 5
         
         # Content quality indicators
         if len(content) > 500:  # Substantial content
             score += 5
         if 'funding' in title or 'investment' in title:
             score += 10
-        if ' in content or '₹' in content:  # Contains financial figures
+        if '$' in content or '₹' in content:  # Contains financial figures
             score += 5
         
         # Penalize irrelevant content
@@ -172,6 +176,9 @@ class ContentAnalyzer:
     
     def _extract_insights(self, content_item: Dict[str, Any]) -> str:
         """Extract key insights using OpenAI"""
+        if not openai.api_key:
+            return "API key not configured for insights extraction"
+        
         try:
             text = f"Title: {content_item.get('title', '')}\nContent: {content_item.get('content', '')}"
             
@@ -198,6 +205,10 @@ class ContentAnalyzer:
     
     def _generate_summary(self, content_item: Dict[str, Any]) -> str:
         """Generate a concise summary"""
+        if not openai.api_key:
+            content_text = content_item.get('content', '')
+            return content_text[:200] + "..." if len(content_text) > 200 else content_text
+        
         try:
             text = content_item.get('content', '')
             if len(text) < 200:
@@ -313,6 +324,13 @@ class ContentAnalyzer:
                 'hot_topics': 'No data available for analysis.',
                 'sentiment': 'Neutral - insufficient data.',
                 'predictions': 'Cannot make predictions without data.'
+            }
+        
+        if not openai.api_key:
+            return {
+                'hot_topics': 'OpenAI API key required for advanced insights.',
+                'sentiment': 'Basic sentiment analysis available.',
+                'predictions': 'Predictive insights require API configuration.'
             }
         
         try:
