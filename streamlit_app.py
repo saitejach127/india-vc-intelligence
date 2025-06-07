@@ -3,15 +3,19 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-import sqlite3
 import json
 
 # Import our custom modules
-from search_engine import VCSearchEngine
-from content_analyzer import ContentAnalyzer
-from data_manager import DataManager
+try:
+    from search_engine import VCSearchEngine
+    from content_analyzer import ContentAnalyzer
+    from data_manager import DataManager
+    from config import SEARCH_QUERIES, VC_FIRMS, PRIORITY_SECTORS
+except ImportError as e:
+    st.error(f"Import error: {e}")
+    st.stop()
 
-# Page config
+# Page configuration
 st.set_page_config(
     page_title="India VC Intelligence",
     page_icon="🚀",
@@ -19,315 +23,356 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3rem;
-        font-weight: bold;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    
-    .sector-tag {
-        background-color: #e1f5fe;
-        color: #01579b;
-        padding: 0.25rem 0.5rem;
-        border-radius: 15px;
-        font-size: 0.8rem;
-        margin: 0.1rem;
-        display: inline-block;
-    }
-    
-    .priority-high { background-color: #ffebee; color: #c62828; }
-    .priority-medium { background-color: #fff8e1; color: #ef6c00; }
-    .priority-low { background-color: #e8f5e8; color: #2e7d32; }
-</style>
-""", unsafe_allow_html=True)
+# Initialize components
+@st.cache_resource
+def init_components():
+    """Initialize search engine, analyzer, and data manager"""
+    search_engine = VCSearchEngine()
+    analyzer = ContentAnalyzer()
+    data_manager = DataManager()
+    return search_engine, analyzer, data_manager
 
-def main():
-    # Initialize components
-    @st.cache_resource
-    def init_components():
-        search_engine = VCSearchEngine()
-        analyzer = ContentAnalyzer()
-        data_manager = DataManager()
-        return search_engine, analyzer, data_manager
-    
-    search_engine, analyzer, data_manager = init_components()
-    
-    # Header
-    st.markdown('<h1 class="main-header">🚀 India VC Intelligence Agent</h1>', unsafe_allow_html=True)
-    st.markdown("**Real-time Investment Thesis & Thought Leadership Monitoring**")
-    
-    # Sidebar
-    with st.sidebar:
-        st.header("🎛️ Control Panel")
-        
-        # Manual search trigger
-        if st.button("🔍 Run Search Now", type="primary"):
-            with st.spinner("Searching across sources..."):
-                run_search(search_engine, analyzer, data_manager)
-        
-        st.divider()
-        
-        # Filters
-        st.subheader("📊 Filters")
-        
-        # Date range
-        date_range = st.date_input(
-            "Date Range",
-            value=(datetime.now() - timedelta(days=7), datetime.now()),
-            max_value=datetime.now()
-        )
-        
-        # Sector filter
-        sectors = ["All", "Consumer", "D2C", "SaaS", "Fintech", "AI SaaS", "Agentic AI"]
-        selected_sector = st.selectbox("Sector", sectors)
-        
-        # VC filter
-        vcs = ["All", "Peak XV (Sequoia)", "Accel", "Matrix Partners", "Elevation", "Lightspeed", "Blume Ventures"]
-        selected_vc = st.selectbox("VC Firm", vcs)
-        
-        # Priority filter
-        priorities = ["All", "High", "Medium", "Low"]
-        selected_priority = st.selectbox("Priority", priorities)
-        
-        st.divider()
-        
-        # Data management
-        st.subheader("🗄️ Data Management")
-        if st.button("📊 Export Data"):
-            export_data(data_manager)
-        
-        if st.button("🗑️ Clear Old Data"):
-            data_manager.cleanup_old_data(days=90)
-            st.success("Old data cleared!")
-    
-    # Main content area
-    col1, col2, col3, col4 = st.columns(4)
-    
-    # Get filtered data
-    df = data_manager.get_filtered_content(
-        start_date=date_range[0] if len(date_range) == 2 else None,
-        end_date=date_range[1] if len(date_range) == 2 else None,
-        sector=selected_sector if selected_sector != "All" else None,
-        vc_firm=selected_vc if selected_vc != "All" else None,
-        priority=selected_priority if selected_priority != "All" else None
-    )
-    
-    # Metrics
-    with col1:
-        total_articles = len(df) if df is not None else 0
-        st.markdown(f'<div class="metric-card"><h3>{total_articles}</h3><p>Total Articles</p></div>', unsafe_allow_html=True)
-    
-    with col2:
-        high_priority = len(df[df['priority'] == 'High']) if df is not None and not df.empty else 0
-        st.markdown(f'<div class="metric-card"><h3>{high_priority}</h3><p>High Priority</p></div>', unsafe_allow_html=True)
-    
-    with col3:
-        today_articles = len(df[df['date_published'] >= datetime.now().date()]) if df is not None and not df.empty else 0
-        st.markdown(f'<div class="metric-card"><h3>{today_articles}</h3><p>Today</p></div>', unsafe_allow_html=True)
-    
-    with col4:
-        avg_score = round(df['relevance_score'].mean(), 1) if df is not None and not df.empty else 0
-        st.markdown(f'<div class="metric-card"><h3>{avg_score}</h3><p>Avg Score</p></div>', unsafe_allow_html=True)
-    
-    # Tabs for different views
-    tab1, tab2, tab3, tab4 = st.tabs(["📰 Latest Content", "📈 Analytics", "🎯 Themes", "💡 Insights"])
-    
-    with tab1:
-        display_content_feed(df)
-    
-    with tab2:
-        display_analytics(df)
-    
-    with tab3:
-        display_themes(df, analyzer)
-    
-    with tab4:
-        display_insights(df, analyzer)
+# Initialize
+search_engine, analyzer, data_manager = init_components()
 
-def run_search(search_engine, analyzer, data_manager):
-    """Execute the search and analysis pipeline"""
+# Sidebar - Control Panel
+st.sidebar.title("🎛️ Control Panel")
+
+# Search Controls
+st.sidebar.subheader("🔍 Data Collection")
+
+if st.sidebar.button("🔍 Run Search Now", type="primary"):
+    st.write("🔍 **Search button clicked!**")
+    
+    # Test API connections first
+    st.write("### 🔧 Testing API Connections")
+    
     try:
-        # Search for content
-        results = search_engine.search_all_sources()
-        
-        # Analyze and score content
-        analyzed_results = []
-        for result in results:
-            analysis = analyzer.analyze_content(result)
-            analyzed_results.append(analysis)
-        
-        # Store in database
-        data_manager.store_content(analyzed_results)
-        
-        st.success(f"✅ Found and analyzed {len(analyzed_results)} new articles!")
-        st.rerun()
+        # Test Tavily
+        st.write("📡 Testing Tavily API...")
+        from tavily import TavilyClient
+        tavily_client = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
+        test_response = tavily_client.search(query="startup", max_results=1)
+        st.success(f"✅ Tavily working! Sample result: {len(test_response.get('results', []))} items")
         
     except Exception as e:
-        st.error(f"Search failed: {str(e)}")
+        st.error(f"❌ Tavily failed: {str(e)}")
+        st.stop()
+    
+    try:
+        # Test OpenAI
+        st.write("🧠 Testing OpenAI API...")
+        import openai
+        openai.api_key = st.secrets["OPENAI_API_KEY"]
+        st.success("✅ OpenAI key configured")
+        
+    except Exception as e:
+        st.error(f"❌ OpenAI failed: {str(e)}")
+    
+    # Now run the actual search
+    st.write("### 🔍 Running Full Search")
+    
+    try:
+        with st.spinner("Searching across sources..."):
+            # Manual simple search first
+            st.write("📡 **Step 1:** Simple Tavily search...")
+            
+            simple_queries = [
+                "India startup funding 2025",
+                "Indian venture capital",
+                "startup investment India"
+            ]
+            
+            all_results = []
+            for query in simple_queries:
+                st.write(f"  🔍 Searching: '{query}'")
+                try:
+                    response = tavily_client.search(query=query, max_results=5)
+                    results = response.get('results', [])
+                    st.write(f"    📥 Found: {len(results)} results")
+                    
+                    # Convert to our format
+                    for result in results:
+                        all_results.append({
+                            'title': result.get('title', 'No title'),
+                            'content': result.get('content', 'No content'),
+                            'url': result.get('url', ''),
+                            'source': result.get('url', '').split('/')[2] if result.get('url') else 'Unknown',
+                            'date_published': datetime.now().isoformat()
+                        })
+                        
+                except Exception as e:
+                    st.write(f"    ❌ Query failed: {str(e)}")
+            
+            st.write(f"📊 **Total raw results:** {len(all_results)}")
+            
+            if all_results:
+                # Show first result as example
+                st.write("📋 **Sample result:**")
+                st.json(all_results[0])
+                
+                # Try to analyze content
+                st.write("🧠 **Step 2:** Analyzing content...")
+                
+                analyzed_results = []
+                for i, result in enumerate(all_results[:3]):  # Just first 3 for testing
+                    st.write(f"  🧠 Analyzing {i+1}/{min(3, len(all_results))}: {result['title'][:50]}...")
+                    try:
+                        analysis = analyzer.analyze_content(result)
+                        analyzed_results.append(analysis)
+                        st.write(f"    ✅ Score: {analysis.get('relevance_score', 'N/A')}")
+                    except Exception as e:
+                        st.write(f"    ❌ Analysis failed: {str(e)}")
+                
+                st.write(f"📊 **Analyzed results:** {len(analyzed_results)}")
+                
+                # Try to store in database
+                st.write("💾 **Step 3:** Storing in database...")
+                try:
+                    stored_count = data_manager.store_content(analyzed_results)
+                    st.success(f"✅ **SUCCESS!** Stored {stored_count} articles in database!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Database storage failed: {str(e)}")
+                    
+            else:
+                st.warning("⚠️ **No results found from any search query!**")
+                st.write("**Possible issues:**")
+                st.write("- Tavily API rate limits")
+                st.write("- Search queries too specific")
+                st.write("- Network connectivity issues")
+                
+    except Exception as e:
+        st.error(f"❌ **Overall search failed:** {str(e)}")
+        st.write("**Full error details:**")
+        st.exception(e)
 
-def display_content_feed(df):
-    """Display the main content feed"""
-    if df is None or df.empty:
+# Search stats
+search_stats = search_engine.get_search_stats()
+st.sidebar.metric("🔍 Total Searches", search_stats.get('total_searches', 0))
+st.sidebar.metric("📅 Last Search", search_stats.get('last_search', 'Never'))
+
+# Filters
+st.sidebar.subheader("🎯 Filters")
+
+# Load data for filters
+df = data_manager.get_content_feed()
+
+if df is not None and not df.empty:
+    # Date range filter
+    min_date = df['date_published'].min().date() if 'date_published' in df.columns else datetime.now().date()
+    max_date = df['date_published'].max().date() if 'date_published' in df.columns else datetime.now().date()
+    
+    date_range = st.sidebar.date_input(
+        "📅 Date Range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    
+    # Sector filter
+    sectors = df['sectors'].unique() if 'sectors' in df.columns else []
+    selected_sectors = st.sidebar.multiselect(
+        "🏢 Sectors",
+        options=sectors,
+        default=sectors
+    )
+    
+    # VC firm filter
+    vc_firms = df['vc_firm'].unique() if 'vc_firm' in df.columns else []
+    selected_vcs = st.sidebar.multiselect(
+        "💼 VC Firms",
+        options=vc_firms,
+        default=vc_firms
+    )
+    
+    # Priority filter
+    priorities = df['priority'].unique() if 'priority' in df.columns else []
+    selected_priorities = st.sidebar.multiselect(
+        "⭐ Priority",
+        options=priorities,
+        default=priorities
+    )
+    
+    # Relevance score filter
+    min_score = st.sidebar.slider(
+        "📊 Min Relevance Score",
+        min_value=0,
+        max_value=100,
+        value=0
+    )
+else:
+    # Default values when no data
+    date_range = (datetime.now().date(), datetime.now().date())
+    selected_sectors = []
+    selected_vcs = []
+    selected_priorities = []
+    min_score = 0
+
+# Main content
+st.title("🚀 India VC Intelligence Agent")
+st.subheader("AI-powered venture capital intelligence for Indian startup ecosystem")
+
+# Tabs
+tab1, tab2, tab3, tab4 = st.tabs(["📰 Latest Content", "📊 Analytics", "🎯 Themes", "💡 Insights"])
+
+with tab1:
+    st.header("📰 Latest VC Content")
+    
+    # Apply filters to dataframe
+    if df is not None and not df.empty:
+        # Filter by date
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+            df = df[df['date_published'].dt.date.between(start_date, end_date)]
+        
+        # Filter by sectors
+        if selected_sectors:
+            df = df[df['sectors'].isin(selected_sectors) | df['sectors'].str.contains('|'.join(selected_sectors), na=False)]
+        
+        # Filter by VC firms
+        if selected_vcs:
+            df = df[df['vc_firm'].isin(selected_vcs)]
+        
+        # Filter by priority
+        if selected_priorities:
+            df = df[df['priority'].isin(selected_priorities)]
+        
+        # Filter by relevance score
+        df = df[df['relevance_score'] >= min_score]
+        
+        if not df.empty:
+            # Sort by relevance score and date
+            df = df.sort_values(['relevance_score', 'date_published'], ascending=[False, False])
+            
+            # Display content
+            for idx, row in df.iterrows():
+                with st.expander(f"⭐ {row['relevance_score']}/100 | {row['title']}", expanded=False):
+                    col1, col2 = st.columns([3, 1])
+                    
+                    with col1:
+                        st.write(f"**Summary:** {row.get('summary', 'No summary available')}")
+                        st.write(f"**Source:** {row['source']} | **Date:** {row['date_published'].strftime('%Y-%m-%d')}")
+                        st.write(f"**Sector:** {row.get('sectors', 'N/A')} | **VC Firm:** {row.get('vc_firm', 'Unknown')}")
+                        if row.get('insights'):
+                            st.write(f"**Key Insights:** {row['insights']}")
+                        st.write(f"[Read Full Article]({row['url']})")
+                    
+                    with col2:
+                        st.metric("Relevance", f"{row['relevance_score']}/100")
+                        st.write(f"**Priority:** {row.get('priority', 'N/A')}")
+                        
+                        # Feedback buttons
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            if st.button("👍", key=f"up_{idx}"):
+                                data_manager.record_feedback(row['url'], 'positive')
+                                st.success("👍 Feedback recorded!")
+                        with col_b:
+                            if st.button("👎", key=f"down_{idx}"):
+                                data_manager.record_feedback(row['url'], 'negative')
+                                st.success("👎 Feedback recorded!")
+        else:
+            st.info("No content found. Try adjusting filters or running a search.")
+    else:
         st.info("No content found. Try running a search or adjusting filters.")
-        return
-    
-    # Sort by relevance score and date
-    df_sorted = df.sort_values(['relevance_score', 'date_published'], ascending=[False, False])
-    
-    for idx, row in df_sorted.iterrows():
-        with st.container():
-            col1, col2 = st.columns([4, 1])
-            
-            with col1:
-                # Title and source
-                st.markdown(f"**[{row['title']}]({row['url']})**")
-                st.markdown(f"*{row['source']} • {row['author']} • {row['date_published']}*")
-                
-                # Summary
-                if pd.notna(row['summary']):
-                    st.markdown(row['summary'])
-                
-                # Tags
-                if pd.notna(row['sectors']):
-                    sectors = row['sectors'].split(',')
-                    tags_html = ''.join([f'<span class="sector-tag">{sector.strip()}</span>' for sector in sectors])
-                    st.markdown(tags_html, unsafe_allow_html=True)
-            
-            with col2:
-                # Score and priority
-                score_color = "🟢" if row['relevance_score'] >= 80 else "🟡" if row['relevance_score'] >= 60 else "🔴"
-                st.markdown(f"{score_color} **{row['relevance_score']}/100**")
-                
-                priority_class = f"priority-{row['priority'].lower()}"
-                st.markdown(f'<span class="{priority_class}">{row["priority"]} Priority</span>', unsafe_allow_html=True)
-                
-                # Feedback buttons
-                col_up, col_down = st.columns(2)
-                with col_up:
-                    if st.button("👍", key=f"up_{idx}"):
-                        update_feedback(idx, 1)
-                with col_down:
-                    if st.button("👎", key=f"down_{idx}"):
-                        update_feedback(idx, -1)
-            
-            st.divider()
 
-def display_analytics(df):
-    """Display analytics dashboard"""
-    if df is None or df.empty:
-        st.info("No data available for analytics.")
-        return
+with tab2:
+    st.header("📊 Analytics Dashboard")
     
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Content by sector
-        sector_counts = df['sectors'].str.split(',').explode().value_counts().head(10)
-        fig_sectors = px.bar(
-            x=sector_counts.values,
-            y=sector_counts.index,
-            orientation='h',
-            title="Content by Sector",
-            color=sector_counts.values,
-            color_continuous_scale="Blues"
-        )
-        st.plotly_chart(fig_sectors, use_container_width=True)
-    
-    with col2:
-        # Content by VC firm
-        vc_counts = df['vc_firm'].value_counts().head(10)
-        fig_vcs = px.pie(
-            values=vc_counts.values,
-            names=vc_counts.index,
-            title="Content by VC Firm"
-        )
-        st.plotly_chart(fig_vcs, use_container_width=True)
-    
-    # Timeline
-    df['date_published'] = pd.to_datetime(df['date_published'])
-    daily_counts = df.groupby(df['date_published'].dt.date).size().reset_index()
-    daily_counts.columns = ['date', 'count']
-    
-    fig_timeline = px.line(
-        daily_counts,
-        x='date',
-        y='count',
-        title="Content Volume Over Time",
-        markers=True
-    )
-    st.plotly_chart(fig_timeline, use_container_width=True)
+    if df is not None and not df.empty:
+        # Key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Articles", len(df))
+        with col2:
+            st.metric("Avg Relevance Score", f"{df['relevance_score'].mean():.1f}")
+        with col3:
+            st.metric("High Priority", len(df[df['priority'] == 'High']))
+        with col4:
+            st.metric("This Week", len(df[df['date_published'] >= datetime.now() - timedelta(days=7)]))
+        
+        # Charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Sector distribution
+            if 'sectors' in df.columns:
+                sector_counts = df['sectors'].value_counts()
+                fig = px.pie(values=sector_counts.values, names=sector_counts.index, 
+                           title="Content by Sector")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # VC firm coverage
+            if 'vc_firm' in df.columns:
+                vc_counts = df['vc_firm'].value_counts().head(10)
+                fig = px.bar(x=vc_counts.values, y=vc_counts.index, 
+                           orientation='h', title="Coverage by VC Firm")
+                st.plotly_chart(fig, use_container_width=True)
+        
+        # Timeline
+        if 'date_published' in df.columns:
+            daily_counts = df.groupby(df['date_published'].dt.date).size().reset_index()
+            daily_counts.columns = ['date', 'count']
+            fig = px.line(daily_counts, x='date', y='count', title="Content Volume Over Time")
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No data available for analytics. Run a search to populate data.")
 
-def display_themes(df, analyzer):
-    """Display theme analysis"""
-    if df is None or df.empty:
-        st.info("No data available for theme analysis.")
-        return
+with tab3:
+    st.header("🎯 Trending Themes")
     
-    # Get themes from analyzer
-    themes = analyzer.extract_themes(df['content'].tolist())
-    
-    # Display top themes
-    st.subheader("🎯 Trending Themes")
-    for theme, articles in themes.items():
-        with st.expander(f"**{theme.title()}** ({len(articles)} articles)"):
-            for article in articles[:5]:  # Show top 5 articles per theme
-                st.markdown(f"• [{article['title']}]({article['url']})")
+    if df is not None and not df.empty:
+        # Extract themes from content
+        themes = analyzer.extract_themes(df['content'].tolist() if 'content' in df.columns else [])
+        
+        if themes:
+            for theme, articles in themes.items():
+                st.subheader(f"🔥 {theme.replace('_', ' ').title()}")
+                st.write(f"Found in {len(articles)} articles")
+                
+                # Show sample articles for each theme
+                for article in articles[:3]:  # Show top 3
+                    st.write(f"• [{article['title']}]({article['url']})")
+        else:
+            st.info("No trending themes detected. Need more content for analysis.")
+    else:
+        st.info("No data available for theme analysis. Run a search to populate data.")
 
-def display_insights(df, analyzer):
-    """Display AI-generated insights"""
-    if df is None or df.empty:
-        st.info("No data available for insights.")
-        return
+with tab4:
+    st.header("💡 AI-Generated Insights")
     
-    with st.spinner("Generating insights..."):
+    if df is not None and not df.empty:
+        # Generate insights
         insights = analyzer.generate_insights(df)
-    
-    st.subheader("💡 AI-Generated Insights")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🔥 Hot Topics**")
-        st.markdown(insights.get('hot_topics', 'No hot topics identified.'))
-    
-    with col2:
-        st.markdown("**📊 Market Sentiment**")
-        st.markdown(insights.get('sentiment', 'Sentiment analysis not available.'))
-    
-    st.markdown("**🔮 Predictions**")
-    st.markdown(insights.get('predictions', 'No predictions available.'))
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.subheader("🔥 Hot Topics")
+            st.write(insights.get('hot_topics', 'No insights available'))
+        
+        with col2:
+            st.subheader("📊 Market Sentiment")
+            st.write(insights.get('sentiment', 'No sentiment data'))
+        
+        with col3:
+            st.subheader("🔮 Predictions")
+            st.write(insights.get('predictions', 'No predictions available'))
+        
+        # Additional analysis
+        st.subheader("📈 Trend Analysis")
+        
+        if 'relevance_score' in df.columns:
+            # Score distribution
+            fig = px.histogram(df, x='relevance_score', bins=20, 
+                             title="Relevance Score Distribution")
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No data available for insights. Run a search to populate data.")
 
-def update_feedback(article_id, feedback):
-    """Update user feedback for learning"""
-    # This will be implemented in the data_manager
-    st.success("Feedback recorded! 🙏")
-
-def export_data(data_manager):
-    """Export data to CSV"""
-    df = data_manager.get_all_content()
-    csv = df.to_csv(index=False)
-    st.download_button(
-        label="📥 Download CSV",
-        data=csv,
-        file_name=f"vc_intelligence_{datetime.now().strftime('%Y%m%d')}.csv",
-        mime="text/csv"
-    )
-
-if __name__ == "__main__":
-    main()
+# Footer
+st.markdown("---")
+st.markdown("🚀 **India VC Intelligence Agent** | Powered by AI | Last updated: " + datetime.now().strftime("%Y-%m-%d %H:%M"))
