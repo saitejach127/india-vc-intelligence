@@ -231,7 +231,7 @@ if st.sidebar.button("🔍 Run Intelligent Search", type="primary"):
                 score = classification.get('score', 0)
                 
                 st.write(f"    🎯 **Score: {score}/100** | Category: {classification.get('category', 'unknown')}")
-                if score >= 60:  # High-value threshold
+                if score >= 30:  # High-value threshold
                     st.write(f"    ✅ **ACCEPTED** - {classification.get('reasoning', 'No reason')}")
                     
                     # Add classification data to article
