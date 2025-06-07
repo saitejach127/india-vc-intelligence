@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
+import openai
 
 # Import our custom modules
 try:
@@ -39,10 +40,10 @@ search_engine, analyzer, data_manager = init_components()
 st.sidebar.title("🎛️ Control Panel")
 
 # Search Controls
-st.sidebar.subheader("🔍 Data Collection")
+st.sidebar.subheader("🔍 Intelligent Content Discovery")
 
-if st.sidebar.button("🔍 Run Search Now", type="primary"):
-    st.write("🔍 **Search button clicked!**")
+if st.sidebar.button("🔍 Run Intelligent Search", type="primary"):
+    st.write("🧠 **Starting Intelligent Two-Stage Search Process**")
     
     # Test API connections first
     st.write("### 🔧 Testing API Connections")
@@ -53,7 +54,7 @@ if st.sidebar.button("🔍 Run Search Now", type="primary"):
         from tavily import TavilyClient
         tavily_client = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
         test_response = tavily_client.search(query="startup", max_results=1)
-        st.success(f"✅ Tavily working! Sample result: {len(test_response.get('results', []))} items")
+        st.success(f"✅ Tavily working! API responding correctly.")
         
     except Exception as e:
         st.error(f"❌ Tavily failed: {str(e)}")
@@ -62,89 +63,225 @@ if st.sidebar.button("🔍 Run Search Now", type="primary"):
     try:
         # Test OpenAI
         st.write("🧠 Testing OpenAI API...")
-        import openai
         openai.api_key = st.secrets["OPENAI_API_KEY"]
-        st.success("✅ OpenAI key configured")
+        st.success("✅ OpenAI configured for intelligent content analysis")
         
     except Exception as e:
         st.error(f"❌ OpenAI failed: {str(e)}")
+        st.stop()
     
-    # Now run the actual search
-    st.write("### 🔍 Running Full Search")
+    # STAGE 1: BROAD SEARCH - Cast a Wide Net
+    st.write("### 📡 Stage 1: Broad Content Discovery")
+    st.write("*Casting a wide net to find all VC/startup content...*")
+    
+    # Broad search queries designed to capture maximum relevant content
+    broad_queries = [
+        # General VC/Startup ecosystem
+        "venture capital India",
+        "startup funding India", 
+        "Indian startup ecosystem",
+        "venture capital news India",
+        "startup investment India",
+        "Indian unicorn startup",
+        "startup founder India",
+        
+        # Business strategy content
+        "business strategy India startup",
+        "scaling business India",
+        "startup growth India",
+        "business model India",
+        "market expansion India",
+        
+        # Major VC firms (to capture their thought leadership)
+        "Sequoia Capital India blog",
+        "Peak XV Partners insights", 
+        "Accel India articles",
+        "Matrix Partners India",
+        "Elevation Capital insights",
+        "Lightspeed India blog",
+        "Blume Ventures insights",
+        "Kalaari Capital"
+    ]
+    
+    all_raw_results = []
     
     try:
-        with st.spinner("Searching across sources..."):
-            # Manual simple search first
-            st.write("📡 **Step 1:** Simple Tavily search...")
-            
-            simple_queries = [
-                "India startup funding 2025",
-                "Indian venture capital",
-                "startup investment India"
-            ]
-            
-            all_results = []
-            for query in simple_queries:
-                st.write(f"  🔍 Searching: '{query}'")
+        with st.expander("🔍 **Stage 1 Progress** (Click to expand)", expanded=True):
+            for i, query in enumerate(broad_queries):
+                st.write(f"**Query {i+1}/{len(broad_queries)}:** '{query}'")
                 try:
-                    response = tavily_client.search(query=query, max_results=5)
+                    response = tavily_client.search(query=query, max_results=8)  # Get more results per query
                     results = response.get('results', [])
-                    st.write(f"    📥 Found: {len(results)} results")
+                    st.write(f"  📥 Raw results: **{len(results)}**")
                     
                     # Convert to our format
                     for result in results:
-                        all_results.append({
+                        all_raw_results.append({
                             'title': result.get('title', 'No title'),
                             'content': result.get('content', 'No content'),
                             'url': result.get('url', ''),
                             'source': result.get('url', '').split('/')[2] if result.get('url') else 'Unknown',
-                            'date_published': datetime.now().isoformat()
+                            'date_published': datetime.now().isoformat(),
+                            'search_query': query
                         })
                         
                 except Exception as e:
                     st.write(f"    ❌ Query failed: {str(e)}")
+        
+        st.success(f"📊 **Stage 1 Complete:** Found {len(all_raw_results)} total articles")
+        
+        # Remove duplicates based on URL
+        unique_results = []
+        seen_urls = set()
+        for result in all_raw_results:
+            if result['url'] not in seen_urls:
+                unique_results.append(result)
+                seen_urls.add(result['url'])
+        
+        st.info(f"📋 **After deduplication:** {len(unique_results)} unique articles")
+        
+        if not unique_results:
+            st.warning("⚠️ No content found in Stage 1. Check API limits or search terms.")
+            st.stop()
+        
+        # STAGE 2: INTELLIGENT AI FILTERING
+        st.write("### 🧠 Stage 2: AI-Powered Content Analysis")
+        st.write("*Using GPT-4 to analyze each article for VC intelligence value...*")
+        
+        def ai_classify_content(article):
+            """Use OpenAI to intelligently classify content relevance"""
             
-            st.write(f"📊 **Total raw results:** {len(all_results)}")
+            prompt = f"""
+            Analyze this article for VC intelligence value. Score 0-100 based on how valuable it would be for a VC or startup founder.
             
-            if all_results:
-                # Show first result as example
-                st.write("📋 **Sample result:**")
-                st.json(all_results[0])
+            Title: {article['title']}
+            Content: {article['content'][:1000]}
+            Source: {article['source']}
+            
+            HIGH VALUE CONTENT (70-100 points):
+            - Investment philosophies and strategies
+            - Business building frameworks and methodologies
+            - Market analysis and sector insights
+            - Scaling and growth strategies
+            - Founder guidance and lessons learned
+            - Venture building approaches
+            - Strategic thinking and decision-making
+            - Industry predictions and trends
+            
+            MEDIUM VALUE CONTENT (40-69 points):
+            - Company profiles with strategic insights
+            - Funding rounds with strategic context
+            - Market reports with actionable insights
+            - Startup success/failure case studies
+            
+            LOW VALUE CONTENT (0-39 points):
+            - Basic funding announcements without context
+            - Product launches without strategic insights
+            - Generic business news
+            - Unrelated technology news
+            - Event announcements
+            
+            Respond with only a JSON object:
+            {{"score": X, "category": "investment_thesis|business_strategy|market_insights|thought_leadership|case_study", "reasoning": "brief explanation", "key_topics": ["topic1", "topic2"]}}
+            """
+            
+            try:
+                response = openai.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=300,
+                    temperature=0.2
+                )
                 
-                # Try to analyze content
-                st.write("🧠 **Step 2:** Analyzing content...")
+                # Parse JSON response
+                content = response.choices[0].message.content.strip()
+                # Remove any markdown formatting
+                if content.startswith('```json'):
+                    content = content[7:-3]
+                elif content.startswith('```'):
+                    content = content[3:-3]
                 
-                analyzed_results = []
-                for i, result in enumerate(all_results[:3]):  # Just first 3 for testing
-                    st.write(f"  🧠 Analyzing {i+1}/{min(3, len(all_results))}: {result['title'][:50]}...")
-                    try:
-                        analysis = analyzer.analyze_content(result)
-                        analyzed_results.append(analysis)
-                        st.write(f"    ✅ Score: {analysis.get('relevance_score', 'N/A')}")
-                    except Exception as e:
-                        st.write(f"    ❌ Analysis failed: {str(e)}")
+                result = json.loads(content)
+                return result
                 
-                st.write(f"📊 **Analyzed results:** {len(analyzed_results)}")
+            except Exception as e:
+                st.write(f"    ⚠️ AI analysis failed for article, using fallback: {str(e)[:50]}")
+                # Fallback analysis
+                text = f"{article['title']} {article['content']}".lower()
+                high_value_keywords = [
+                    'strategy', 'thesis', 'insights', 'framework', 'scaling', 
+                    'growth', 'investment', 'analysis', 'trends', 'outlook'
+                ]
+                score = min(sum(15 for keyword in high_value_keywords if keyword in text), 85)
+                return {"score": score, "category": "general", "reasoning": "fallback keyword analysis", "key_topics": []}
+        
+        # Process articles with AI analysis
+        high_value_articles = []
+        
+        with st.expander("🧠 **Stage 2 Progress** (Click to expand)", expanded=True):
+            progress_bar = st.progress(0)
+            
+            for i, article in enumerate(unique_results):
+                progress_bar.progress((i + 1) / len(unique_results))
                 
-                # Try to store in database
-                st.write("💾 **Step 3:** Storing in database...")
-                try:
-                    stored_count = data_manager.store_content(analyzed_results)
-                    st.success(f"✅ **SUCCESS!** Stored {stored_count} articles in database!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Database storage failed: {str(e)}")
+                st.write(f"**Analyzing {i+1}/{len(unique_results)}:** {article['title'][:60]}...")
+                
+                # Get AI classification
+                classification = ai_classify_content(article)
+                score = classification.get('score', 0)
+                
+                st.write(f"    🎯 **Score: {score}/100** | Category: {classification.get('category', 'unknown')}")
+                if score >= 60:  # High-value threshold
+                    st.write(f"    ✅ **ACCEPTED** - {classification.get('reasoning', 'No reason')}")
                     
-            else:
-                st.warning("⚠️ **No results found from any search query!**")
-                st.write("**Possible issues:**")
-                st.write("- Tavily API rate limits")
-                st.write("- Search queries too specific")
-                st.write("- Network connectivity issues")
+                    # Add classification data to article
+                    article['relevance_score'] = score
+                    article['ai_category'] = classification.get('category', 'general')
+                    article['ai_reasoning'] = classification.get('reasoning', '')
+                    article['key_topics'] = classification.get('key_topics', [])
+                    article['priority'] = 'High' if score >= 80 else 'Medium'
+                    
+                    high_value_articles.append(article)
+                else:
+                    st.write(f"    ❌ **REJECTED** - {classification.get('reasoning', 'Low relevance')}")
+        
+        st.success(f"🎯 **Stage 2 Complete:** {len(high_value_articles)} high-value articles identified")
+        
+        if high_value_articles:
+            # Show sample of accepted articles
+            st.write("### 📋 Sample High-Value Articles Found:")
+            for i, article in enumerate(high_value_articles[:3]):
+                st.write(f"**{i+1}.** {article['title']} (Score: {article['relevance_score']}/100)")
+                st.write(f"   Category: {article['ai_category']} | Reasoning: {article['ai_reasoning']}")
+                st.write("---")
+            
+            # Store in database
+            st.write("### 💾 Stage 3: Storing High-Value Content")
+            try:
+                stored_count = data_manager.store_content(high_value_articles)
+                st.success(f"✅ **SUCCESS!** Stored {stored_count} high-value articles in database!")
                 
+                # Show summary statistics
+                categories = [article['ai_category'] for article in high_value_articles]
+                avg_score = sum(article['relevance_score'] for article in high_value_articles) / len(high_value_articles)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Articles Stored", stored_count)
+                with col2:
+                    st.metric("Avg Quality Score", f"{avg_score:.1f}/100")
+                with col3:
+                    st.metric("Categories Found", len(set(categories)))
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Database storage failed: {str(e)}")
+        else:
+            st.warning("⚠️ No high-value articles found. Try adjusting the scoring threshold or search terms.")
+            
     except Exception as e:
-        st.error(f"❌ **Overall search failed:** {str(e)}")
-        st.write("**Full error details:**")
+        st.error(f"❌ **Search process failed:** {str(e)}")
         st.exception(e)
 
 # Search stats
@@ -153,12 +290,33 @@ st.sidebar.metric("🔍 Total Searches", search_stats.get('total_searches', 0))
 st.sidebar.metric("📅 Last Search", search_stats.get('last_search', 'Never'))
 
 # Filters
-st.sidebar.subheader("🎯 Filters")
+st.sidebar.subheader("🎯 Intelligent Filters")
 
 # Load data for filters
 df = data_manager.get_content_feed()
 
 if df is not None and not df.empty:
+    # AI Category filter (new!)
+    ai_categories = df['ai_category'].unique() if 'ai_category' in df.columns else []
+    selected_categories = st.sidebar.multiselect(
+        "🧠 AI Categories",
+        options=ai_categories,
+        default=ai_categories,
+        help="Categories determined by AI analysis"
+    )
+    
+    # Quality Score filter (new!)
+    if 'relevance_score' in df.columns:
+        min_quality = st.sidebar.slider(
+            "🎯 Minimum Quality Score",
+            min_value=0,
+            max_value=100,
+            value=60,
+            help="AI-determined content quality score"
+        )
+    else:
+        min_quality = 0
+    
     # Date range filter
     min_date = df['date_published'].min().date() if 'date_published' in df.columns else datetime.now().date()
     max_date = df['date_published'].max().date() if 'date_published' in df.columns else datetime.now().date()
@@ -170,22 +328,6 @@ if df is not None and not df.empty:
         max_value=max_date
     )
     
-    # Sector filter
-    sectors = df['sectors'].unique() if 'sectors' in df.columns else []
-    selected_sectors = st.sidebar.multiselect(
-        "🏢 Sectors",
-        options=sectors,
-        default=sectors
-    )
-    
-    # VC firm filter
-    vc_firms = df['vc_firm'].unique() if 'vc_firm' in df.columns else []
-    selected_vcs = st.sidebar.multiselect(
-        "💼 VC Firms",
-        options=vc_firms,
-        default=vc_firms
-    )
-    
     # Priority filter
     priorities = df['priority'].unique() if 'priority' in df.columns else []
     selected_priorities = st.sidebar.multiselect(
@@ -193,186 +335,177 @@ if df is not None and not df.empty:
         options=priorities,
         default=priorities
     )
-    
-    # Relevance score filter
-    min_score = st.sidebar.slider(
-        "📊 Min Relevance Score",
-        min_value=0,
-        max_value=100,
-        value=0
-    )
 else:
-    # Default values when no data
+    selected_categories = []
+    min_quality = 60
     date_range = (datetime.now().date(), datetime.now().date())
-    selected_sectors = []
-    selected_vcs = []
     selected_priorities = []
-    min_score = 0
 
 # Main content
 st.title("🚀 India VC Intelligence Agent")
-st.subheader("AI-powered venture capital intelligence for Indian startup ecosystem")
+st.subheader("🧠 AI-powered venture capital intelligence with intelligent content discovery")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📰 Latest Content", "📊 Analytics", "🎯 Themes", "💡 Insights"])
+tab1, tab2, tab3, tab4 = st.tabs(["📰 Intelligent Feed", "📊 Analytics", "🎯 AI Categories", "💡 Insights"])
 
 with tab1:
-    st.header("📰 Latest VC Content")
+    st.header("📰 AI-Curated VC Content")
     
     # Apply filters to dataframe
     if df is not None and not df.empty:
+        # Filter by AI categories
+        if selected_categories:
+            df = df[df['ai_category'].isin(selected_categories)] if 'ai_category' in df.columns else df
+        
+        # Filter by quality score
+        if 'relevance_score' in df.columns:
+            df = df[df['relevance_score'] >= min_quality]
+        
         # Filter by date
         if len(date_range) == 2:
             start_date, end_date = date_range
             df = df[df['date_published'].dt.date.between(start_date, end_date)]
         
-        # Filter by sectors
-        if selected_sectors:
-            df = df[df['sectors'].isin(selected_sectors) | df['sectors'].str.contains('|'.join(selected_sectors), na=False)]
-        
-        # Filter by VC firms
-        if selected_vcs:
-            df = df[df['vc_firm'].isin(selected_vcs)]
-        
         # Filter by priority
         if selected_priorities:
             df = df[df['priority'].isin(selected_priorities)]
         
-        # Filter by relevance score
-        df = df[df['relevance_score'] >= min_score]
-        
         if not df.empty:
-            # Sort by relevance score and date
+            # Sort by AI relevance score
             df = df.sort_values(['relevance_score', 'date_published'], ascending=[False, False])
             
-            # Display content
+            # Display content with AI insights
             for idx, row in df.iterrows():
-                with st.expander(f"⭐ {row['relevance_score']}/100 | {row['title']}", expanded=False):
+                quality_emoji = "🔥" if row.get('relevance_score', 0) >= 80 else "⭐" if row.get('relevance_score', 0) >= 70 else "📄"
+                
+                with st.expander(f"{quality_emoji} {row.get('relevance_score', 'N/A')}/100 | {row['title']}", expanded=False):
                     col1, col2 = st.columns([3, 1])
                     
                     with col1:
-                        st.write(f"**Summary:** {row.get('summary', 'No summary available')}")
+                        if row.get('ai_reasoning'):
+                            st.write(f"**🧠 AI Analysis:** {row['ai_reasoning']}")
+                        
+                        st.write(f"**Content:** {row.get('content', 'No content available')[:300]}...")
                         st.write(f"**Source:** {row['source']} | **Date:** {row['date_published'].strftime('%Y-%m-%d')}")
-                        st.write(f"**Sector:** {row.get('sectors', 'N/A')} | **VC Firm:** {row.get('vc_firm', 'Unknown')}")
-                        if row.get('insights'):
-                            st.write(f"**Key Insights:** {row['insights']}")
-                        st.write(f"[Read Full Article]({row['url']})")
+                        
+                        if row.get('key_topics'):
+                            topics = ', '.join(row['key_topics']) if isinstance(row['key_topics'], list) else str(row['key_topics'])
+                            st.write(f"**🏷️ Key Topics:** {topics}")
+                        
+                        st.write(f"[📖 Read Full Article]({row['url']})")
                     
                     with col2:
-                        st.metric("Relevance", f"{row['relevance_score']}/100")
-                        st.write(f"**Priority:** {row.get('priority', 'N/A')}")
+                        st.metric("🎯 AI Quality Score", f"{row.get('relevance_score', 'N/A')}/100")
+                        if row.get('ai_category'):
+                            st.write(f"**🧠 Category:** {row['ai_category'].replace('_', ' ').title()}")
+                        st.write(f"**⭐ Priority:** {row.get('priority', 'N/A')}")
                         
                         # Feedback buttons
                         col_a, col_b = st.columns(2)
                         with col_a:
                             if st.button("👍", key=f"up_{idx}"):
                                 data_manager.record_feedback(row['url'], 'positive')
-                                st.success("👍 Feedback recorded!")
+                                st.success("👍 Training AI!")
                         with col_b:
                             if st.button("👎", key=f"down_{idx}"):
                                 data_manager.record_feedback(row['url'], 'negative')
-                                st.success("👎 Feedback recorded!")
+                                st.success("👎 Training AI!")
         else:
-            st.info("No content found. Try adjusting filters or running a search.")
+            st.info("No content matches your filters. Try adjusting the quality score or categories.")
     else:
-        st.info("No content found. Try running a search or adjusting filters.")
+        st.info("No content found. Run an intelligent search to discover high-value VC content.")
 
 with tab2:
-    st.header("📊 Analytics Dashboard")
+    st.header("📊 AI Analytics Dashboard")
     
     if df is not None and not df.empty:
-        # Key metrics
+        # Enhanced metrics with AI insights
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Articles", len(df))
         with col2:
-            st.metric("Avg Relevance Score", f"{df['relevance_score'].mean():.1f}")
+            avg_quality = df['relevance_score'].mean() if 'relevance_score' in df.columns else 0
+            st.metric("Avg AI Quality", f"{avg_quality:.1f}/100")
         with col3:
-            st.metric("High Priority", len(df[df['priority'] == 'High']))
+            high_quality = len(df[df['relevance_score'] >= 80]) if 'relevance_score' in df.columns else 0
+            st.metric("High Quality (80+)", high_quality)
         with col4:
-            st.metric("This Week", len(df[df['date_published'] >= datetime.now() - timedelta(days=7)]))
+            categories = len(df['ai_category'].unique()) if 'ai_category' in df.columns else 0
+            st.metric("AI Categories", categories)
         
         # Charts
         col1, col2 = st.columns(2)
         
         with col1:
-            # Sector distribution
-            if 'sectors' in df.columns:
-                sector_counts = df['sectors'].value_counts()
-                fig = px.pie(values=sector_counts.values, names=sector_counts.index, 
-                           title="Content by Sector")
+            # AI Category distribution
+            if 'ai_category' in df.columns:
+                category_counts = df['ai_category'].value_counts()
+                fig = px.pie(values=category_counts.values, names=category_counts.index, 
+                           title="Content by AI Category")
                 st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # VC firm coverage
-            if 'vc_firm' in df.columns:
-                vc_counts = df['vc_firm'].value_counts().head(10)
-                fig = px.bar(x=vc_counts.values, y=vc_counts.index, 
-                           orientation='h', title="Coverage by VC Firm")
+            # Quality score distribution
+            if 'relevance_score' in df.columns:
+                fig = px.histogram(df, x='relevance_score', bins=20, 
+                                 title="AI Quality Score Distribution")
                 st.plotly_chart(fig, use_container_width=True)
-        
-        # Timeline
-        if 'date_published' in df.columns:
-            daily_counts = df.groupby(df['date_published'].dt.date).size().reset_index()
-            daily_counts.columns = ['date', 'count']
-            fig = px.line(daily_counts, x='date', y='count', title="Content Volume Over Time")
-            st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No data available for analytics. Run a search to populate data.")
+        st.info("No data available for analytics. Run an intelligent search to populate data.")
 
 with tab3:
-    st.header("🎯 Trending Themes")
+    st.header("🎯 AI Content Categories")
     
-    if df is not None and not df.empty:
-        # Extract themes from content
-        themes = analyzer.extract_themes(df['content'].tolist() if 'content' in df.columns else [])
+    if df is not None and not df.empty and 'ai_category' in df.columns:
+        categories = df['ai_category'].unique()
         
-        if themes:
-            for theme, articles in themes.items():
-                st.subheader(f"🔥 {theme.replace('_', ' ').title()}")
-                st.write(f"Found in {len(articles)} articles")
-                
-                # Show sample articles for each theme
-                for article in articles[:3]:  # Show top 3
-                    st.write(f"• [{article['title']}]({article['url']})")
-        else:
-            st.info("No trending themes detected. Need more content for analysis.")
+        for category in categories:
+            category_df = df[df['ai_category'] == category]
+            avg_score = category_df['relevance_score'].mean()
+            
+            st.subheader(f"📁 {category.replace('_', ' ').title()}")
+            st.write(f"**Articles:** {len(category_df)} | **Avg Quality:** {avg_score:.1f}/100")
+            
+            # Show top articles in this category
+            top_articles = category_df.nlargest(3, 'relevance_score')
+            for _, article in top_articles.iterrows():
+                st.write(f"• **{article['title']}** ({article['relevance_score']}/100)")
+            st.write("---")
     else:
-        st.info("No data available for theme analysis. Run a search to populate data.")
+        st.info("No categorized content available. Run an intelligent search first.")
 
 with tab4:
     st.header("💡 AI-Generated Insights")
     
     if df is not None and not df.empty:
-        # Generate insights
+        # Generate insights from high-quality content
         insights = analyzer.generate_insights(df)
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.subheader("🔥 Hot Topics")
+            st.subheader("🔥 Trending Themes")
             st.write(insights.get('hot_topics', 'No insights available'))
         
         with col2:
-            st.subheader("📊 Market Sentiment")
+            st.subheader("📊 Market Sentiment") 
             st.write(insights.get('sentiment', 'No sentiment data'))
         
         with col3:
-            st.subheader("🔮 Predictions")
+            st.subheader("🔮 Strategic Predictions")
             st.write(insights.get('predictions', 'No predictions available'))
         
-        # Additional analysis
-        st.subheader("📈 Trend Analysis")
-        
+        # Show quality trend
         if 'relevance_score' in df.columns:
-            # Score distribution
-            fig = px.histogram(df, x='relevance_score', bins=20, 
-                             title="Relevance Score Distribution")
+            st.subheader("📈 Content Quality Trends")
+            daily_quality = df.groupby(df['date_published'].dt.date)['relevance_score'].mean().reset_index()
+            daily_quality.columns = ['date', 'avg_quality']
+            fig = px.line(daily_quality, x='date', y='avg_quality', title="Average Content Quality Over Time")
             st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No data available for insights. Run a search to populate data.")
+        st.info("No data available for insights. Run an intelligent search to populate data.")
 
 # Footer
 st.markdown("---")
-st.markdown("🚀 **India VC Intelligence Agent** | Powered by AI | Last updated: " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+st.markdown("🧠 **Intelligent VC Discovery** | Powered by AI Content Analysis | Last updated: " + datetime.now().strftime("%Y-%m-%d %H:%M"))
