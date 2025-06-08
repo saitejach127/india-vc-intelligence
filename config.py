@@ -3,7 +3,7 @@
 # API Configuration
 API_LIMITS = {
     'TAVILY_DAILY_LIMIT': 1000,  # Free tier limit
-    'OPENAI_MONTHLY_BUDGET': 20,  # USD budget
+    'GEMINI_MONTHLY_BUDGET': 20, # USD budget (adjust as needed for Gemini)
     'SEARCH_DELAY': 0.5,  # Seconds between searches
     'MAX_CONTENT_LENGTH': 2000  # Characters for AI analysis
 }
