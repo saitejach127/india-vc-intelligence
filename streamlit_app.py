@@ -5,15 +5,15 @@ from datetime import datetime, timedelta
 import json
 import openai
 
-# Add version check to confirm deployment
-st.write("🧪 **VERSION: Intelligent Search System v3.0 - FRESH DEPLOYMENT**")
-
-# Page configuration
+# Page configuration MUST BE FIRST
 st.set_page_config(
     page_title="India VC Intelligence",
     page_icon="🚀",
     layout="wide"
 )
+
+# Now add version check after page config
+st.write("🧪 **VERSION: Intelligent Search System v3.1 - FIXED DEPLOYMENT**")
 
 # Initialize OpenAI (simple approach)
 try:
@@ -292,7 +292,7 @@ if st.button("🧠 **RUN INTELLIGENT SEARCH**", type="primary", use_container_wi
 # Rest of the interface
 st.markdown("---")
 st.write("### 📊 System Status")
-st.info("Database integration temporarily disabled for testing. Using in-memory results only.")
+st.info("Intelligent search system ready. Click the button above to discover high-value VC content.")
 
 # Footer
 st.markdown("---")
