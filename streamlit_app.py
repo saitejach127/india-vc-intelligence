@@ -173,24 +173,42 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("""
-            INSERT OR REPLACE INTO articles 
-            (id, title, content, url, domain, source_quality, published_date, 
-             search_query, search_category, relevance_score, ai_summary, 
-             key_insights, is_paywall, content_freshness, user_rating, 
-             bookmark_count, view_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            article.id, article.title, article.content, article.url,
-            article.domain, article.source_quality, article.published_date,
-            article.search_query, article.search_category, article.relevance_score,
-            article.ai_summary, article.key_insights, article.is_paywall,
-            article.content_freshness, article.user_rating,
-            article.bookmark_count, article.view_count
-        ))
-        
-        conn.commit()
-        conn.close()
+        try:
+            cursor.execute("""
+                INSERT OR REPLACE INTO articles 
+                (id, title, content, url, domain, source_quality, published_date, 
+                 search_query, search_category, relevance_score, ai_summary, 
+                 key_insights, is_paywall, content_freshness, user_rating, 
+                 bookmark_count, view_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                article.id, 
+                article.title[:500],  # Limit title length
+                article.content[:2000],  # Limit content length
+                article.url, 
+                article.domain, 
+                article.source_quality, 
+                article.published_date,
+                article.search_query[:200],  # Limit query length
+                article.search_category, 
+                article.relevance_score,
+                article.ai_summary[:500] if article.ai_summary else "",  # Handle None
+                article.key_insights[:500] if article.key_insights else "",  # Handle None
+                1 if article.is_paywall else 0,  # Convert boolean to int
+                article.content_freshness,
+                article.user_rating or 0,  # Handle None
+                article.bookmark_count or 0,  # Handle None
+                article.view_count or 0  # Handle None
+            ))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            st.error(f"Database save error: {str(e)}")
+            return False
+        finally:
+            conn.close()
     
     def get_articles(self, limit=None, filters=None):
         """Retrieve articles with optional filters"""
@@ -662,14 +680,18 @@ class EnhancedSearchSystem:
                                 url=url,
                                 domain=domain,
                                 source_quality=source_quality,
-                                published_date=published_date,
+                                published_date=published_date or "",
                                 search_query=query,
                                 search_category=ai_analysis.get('category', 'general'),
                                 relevance_score=ai_analysis.get('score', 0),
-                                ai_summary=ai_analysis.get('strategic_value', ''),
-                                key_insights=ai_analysis.get('key_insights', ''),
+                                ai_summary=ai_analysis.get('strategic_value', '') or "",
+                                key_insights=ai_analysis.get('key_insights', '') or "",
                                 is_paywall=is_paywall,
-                                content_freshness=content_freshness
+                                content_freshness=content_freshness,
+                                user_rating=None,
+                                bookmark_count=0,
+                                view_count=0,
+                                created_at=datetime.now().isoformat()
                             )
                             
                             all_results.append(article)
@@ -802,8 +824,14 @@ with tab1:
                         
                         filtered_results.append(article)
                         
-                        # Save to database
-                        db.save_article(article)
+                        # Save to database with error handling
+                        try:
+                            save_success = db.save_article(article)
+                            if not save_success:
+                                st.warning(f"Failed to save: {article.title[:50]}...")
+                        except Exception as e:
+                            st.error(f"Database error: {str(e)}")
+                            continue
                     
                     # Remove duplicates
                     unique_results = {}
