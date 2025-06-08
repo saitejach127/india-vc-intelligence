@@ -4,7 +4,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
-import openai
 import requests
 from urllib.parse import urlparse
 import time
@@ -314,13 +313,13 @@ db = get_database()
 
 # API Setup
 try:
-    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    gemini_api_key = st.secrets["GEMINI_API_KEY"]
     from tavily import TavilyClient
     tavily_client = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
     api_connected = True
 except:
     api_connected = False
-    st.error("⚠️ API keys not configured. Add OPENAI_API_KEY and TAVILY_API_KEY to secrets.")
+    st.error("⚠️ API keys not configured. Add GEMINI_API_KEY and TAVILY_API_KEY to secrets.")
 
 # Enhanced Content Analysis
 class ContentAnalyzer:
@@ -346,6 +345,42 @@ class ContentAnalyzer:
                 'nfx.com', 'greylock.com', 'bessemer.com'
             ]
         }
+    
+    def call_gemini_api(self, prompt):
+        """Make a call to Gemini API"""
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_api_key}"
+            
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            headers = {
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            
+            result = response.json()
+            
+            # Extract the generated text from Gemini response
+            if 'candidates' in result and len(result['candidates']) > 0:
+                if 'content' in result['candidates'][0] and 'parts' in result['candidates'][0]['content']:
+                    return result['candidates'][0]['content']['parts'][0]['text']
+            
+            raise Exception("No content generated")
+            
+        except Exception as e:
+            raise Exception(f"Gemini API call failed: {str(e)}")
     
     def detect_paywall(self, content, url):
         """Detect if content is behind paywall"""
@@ -437,14 +472,9 @@ class ContentAnalyzer:
         """
         
         try:
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=400,
-                temperature=0.1
-            )
+            content = self.call_gemini_api(prompt)
             
-            content = response.choices[0].message.content.strip()
+            # Clean up response (remove code blocks if present)
             if content.startswith('```json'):
                 content = content[7:-3]
             elif content.startswith('```'):
@@ -1234,10 +1264,10 @@ with tab5:
         
         if api_connected:
             st.success("✅ **Tavily Search API** - Connected")
-            st.success("✅ **OpenAI API** - Connected")
+            st.success("✅ **Gemini AI API** - Connected")
         else:
             st.error("❌ **APIs Not Connected**")
-            st.info("Add OPENAI_API_KEY and TAVILY_API_KEY to Streamlit secrets")
+            st.info("Add GEMINI_API_KEY and TAVILY_API_KEY to Streamlit secrets")
         
         # Database status
         try:

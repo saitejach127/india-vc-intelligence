@@ -1,6 +1,5 @@
 import streamlit as st
-import openai
-from typing import Dict, List, Any
+import requests  # Added for making HTTP requests to Gemini API
 import json
 import re
 from datetime import datetime, timedelta
@@ -10,9 +9,12 @@ import pandas as pd
 class ContentAnalyzer:
     def __init__(self):
         try:
-            openai.api_key = st.secrets["OPENAI_API_KEY"]
-        except:
-            openai.api_key = None
+            # openai.api_key = st.secrets["OPENAI_API_KEY"] # OpenAI key loading removed
+            self.gemini_api_key = st.secrets.get("GEMINI_API_KEY")
+        except Exception as e:
+            # openai.api_key = None # OpenAI key set to None removed
+            self.gemini_api_key = None
+            st.error(f"Error loading GEMINI_API_KEY: {e}")
         
         # Configuration
         self.tier1_vcs = [
@@ -174,66 +176,78 @@ class ContentAnalyzer:
         else:
             return 'Low'
     
+    def _get_gemini_response(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Helper function to get response from Gemini API"""
+        if not self.gemini_api_key:
+            return "Gemini API key not configured."
+
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={self.gemini_api_key}"
+        
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        
+        data = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": prompt
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+                "temperature": temperature
+            }
+        }
+        
+        try:
+            response = requests.post(api_url, headers=headers, json=data, timeout=30)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            
+            response_json = response.json()
+            
+            if response_json.get("candidates") and response_json["candidates"][0].get("content") and response_json["candidates"][0]["content"].get("parts"):
+                return response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+            else:
+                # Log or handle cases where the expected response structure is missing
+                st.warning(f"Gemini API response format unexpected: {response_json}")
+                return "Error: Unexpected response format from Gemini API."
+                
+        except requests.exceptions.RequestException as e:
+            st.error(f"Gemini API request failed: {e}")
+            return f"Gemini API request failed: {str(e)[:200]}"
+        except (KeyError, IndexError) as e:
+            st.error(f"Error parsing Gemini API response: {e}. Response: {response.text[:200]}")
+            return f"Error parsing Gemini API response: {str(e)[:200]}"
+        except Exception as e:
+            st.error(f"An unexpected error occurred with Gemini API: {e}")
+            return f"An unexpected error occurred: {str(e)[:200]}"
+
     def _extract_insights(self, content_item: Dict[str, Any]) -> str:
-        """Extract key insights using OpenAI"""
-        if not openai.api_key:
+        """Extract key insights using Gemini Pro"""
+        if not self.gemini_api_key:
             return "API key not configured for insights extraction"
         
-        try:
-            text = f"Title: {content_item.get('title', '')}\nContent: {content_item.get('content', '')}"
-            
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert VC analyst. Extract 2-3 key investment insights from this content. Focus on investment thesis, market trends, or strategic implications. Be concise and specific."
-                    },
-                    {
-                        "role": "user",
-                        "content": text[:2000]  # Limit to avoid token limits
-                    }
-                ],
-                max_tokens=200,
-                temperature=0.3
-            )
-            
-            return response.choices[0].message.content.strip()
+        text = f"Title: {content_item.get('title', '')}\nContent: {content_item.get('content', '')}"
+        prompt = f"You are an expert VC analyst. Extract 2-3 key investment insights from this content. Focus on investment thesis, market trends, or strategic implications. Be concise and specific.\n\nContent:\n{text[:2000]}"
         
-        except Exception as e:
-            return f"Insight extraction failed: {str(e)[:100]}"
+        return self._get_gemini_response(prompt, max_tokens=200, temperature=0.3)
     
     def _generate_summary(self, content_item: Dict[str, Any]) -> str:
-        """Generate a concise summary"""
-        if not openai.api_key:
-            content_text = content_item.get('content', '')
+        """Generate a concise summary using Gemini Pro"""
+        content_text = content_item.get('content', '')
+        if not self.gemini_api_key:
             return content_text[:200] + "..." if len(content_text) > 200 else content_text
         
-        try:
-            text = content_item.get('content', '')
-            if len(text) < 200:
-                return text
+        if len(content_text) < 200:
+            return content_text
             
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Summarize this VC/startup content in 2-3 sentences. Focus on key facts, figures, and implications."
-                    },
-                    {
-                        "role": "user",
-                        "content": text[:1500]
-                    }
-                ],
-                max_tokens=150,
-                temperature=0.3
-            )
-            
-            return response.choices[0].message.content.strip()
+        prompt = f"Summarize this VC/startup content in 2-3 sentences. Focus on key facts, figures, and implications.\n\nContent:\n{content_text[:1500]}"
         
-        except Exception as e:
-            return content_item.get('content', '')[:200] + "..."
+        return self._get_gemini_response(prompt, max_tokens=150, temperature=0.3)
     
     def _classify_content_type(self, content_item: Dict[str, Any]) -> str:
         """Classify the type of content"""
@@ -318,7 +332,7 @@ class ContentAnalyzer:
         return {theme: [{'title': 'Sample Article', 'url': '#'}] for theme in list(sorted_themes.keys())[:5]}
     
     def generate_insights(self, df: pd.DataFrame) -> Dict[str, str]:
-        """Generate AI insights from the data"""
+        """Generate AI insights from the data using Gemini Pro"""
         if df is None or df.empty:
             return {
                 'hot_topics': 'No data available for analysis.',
@@ -326,9 +340,9 @@ class ContentAnalyzer:
                 'predictions': 'Cannot make predictions without data.'
             }
         
-        if not openai.api_key:
+        if not self.gemini_api_key: # Check for Gemini key
             return {
-                'hot_topics': 'OpenAI API key required for advanced insights.',
+                'hot_topics': 'Gemini API key required for advanced insights.',
                 'sentiment': 'Basic sentiment analysis available.',
                 'predictions': 'Predictive insights require API configuration.'
             }
@@ -348,24 +362,13 @@ class ContentAnalyzer:
             - Content types: {df['content_type'].value_counts().to_dict()}
             """
             
-            response = openai.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a senior VC analyst. Based on this data summary, provide insights on: 1) Hot topics in Indian VC ecosystem, 2) Overall market sentiment, 3) Predictions for next quarter. Be specific and actionable."
-                    },
-                    {
-                        "role": "user",
-                        "content": summary_text
-                    }
-                ],
-                max_tokens=300,
-                temperature=0.4
-            )
+            prompt = f"You are a senior VC analyst. Based on this data summary, provide insights on: 1) Hot topics in Indian VC ecosystem, 2) Overall market sentiment, 3) Predictions for next quarter. Be specific and actionable.\n\nData Summary:\n{summary_text}"
             
-            full_response = response.choices[0].message.content
-            
+            full_response = self._get_gemini_response(prompt, max_tokens=300, temperature=0.4)
+
+            if "failed" in full_response.lower() or "error" in full_response.lower():
+                 raise Exception(f"Gemini API call failed or returned an error: {full_response}")
+
             # Parse response into sections
             insights = {
                 'hot_topics': self._extract_section(full_response, 'hot topics') or 'AI/ML and consumer tech remain dominant themes.',
@@ -376,6 +379,7 @@ class ContentAnalyzer:
             return insights
         
         except Exception as e:
+            st.error(f"Error in generate_insights with Gemini: {e}")
             return {
                 'hot_topics': f'Analysis error: {str(e)[:100]}',
                 'sentiment': 'Unable to determine sentiment.',
